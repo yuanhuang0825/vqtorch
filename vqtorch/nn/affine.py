@@ -38,7 +38,7 @@ class AffineTransform(nn.Module):
 		return
 
 	@torch.no_grad()
-	def update_running_statistics(self, z_e, c):
+	def update_running_statistics(self, z_e, c, mask):
 		# we find it helpful to often to make an under-estimation on the
 		# z_e embedding statistics. Empirically we observe a slight
 		# over-estimation of the statistics, causing the straight-through
@@ -51,9 +51,11 @@ class AffineTransform(nn.Module):
 		if self.training and self.use_running_statistics:
 			unbiased = False
 
-			ze_mean = z_e.mean([0, 1]).unsqueeze(0)
-			ze_var = z_e.var([0, 1], unbiased=unbiased).unsqueeze(0)
-
+			#ze_mean = z_e.mean([0, 1]).unsqueeze(0)
+			ze_mean = (z_e.sum([0, 1])/mask.sum([0,1])).unsqueeze(0)
+			#ze_var = z_e.var([0, 1], unbiased=unbiased).unsqueeze(0)
+			ze_var = (((z_e-ze_mean.unsqueeze(0))**2).sum([0,1])/mask.sum([0,1])).unsqueeze(0)
+   
 			c_mean = c.mean([0]).unsqueeze(0)
 			c_var = c.var([0], unbiased=unbiased).unsqueeze(0)
 

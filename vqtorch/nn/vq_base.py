@@ -112,7 +112,7 @@ class _VQBaseLayer(nn.Module):
 		return x.flatten(-2, -1).moveaxis(-1, self.dim)
 
 
-	def prepare_inputs(self, z, groups):
+	def prepare_inputs(self, z, mask, groups):
 		"""
 		Prepare input with normalization and group format
 
@@ -127,13 +127,13 @@ class _VQBaseLayer(nn.Module):
 
 		if self.norm_before_grouping:
 			z = self.norm_layer(z)
-
+		mask = self.to_canonical_group_format(mask, groups)
 		z = self.to_canonical_group_format(z, groups)
 
 		if not self.norm_before_grouping:
 			z = self.norm_layer(z)
 
-		return z
+		return z, mask
 
 
 	@property

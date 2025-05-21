@@ -86,7 +86,7 @@ class VectorQuant(_VQBaseLayer):
 					  (self.beta) * self.loss_fn(z_e.detach(), z_q))
 
 
-	def quantize(self, codebook, z):
+	def quantize(self, codebook, z, mask):
 		"""
 		Quantizes the latent codes z with the codebook
 
@@ -100,7 +100,7 @@ class VectorQuant(_VQBaseLayer):
 		z_flat = z.view(z.size(0), -1, z.size(-1))
 
 		if hasattr(self, 'affine_transform'):
-			self.affine_transform.update_running_statistics(z_flat, codebook)
+			self.affine_transform.update_running_statistics(z_flat, codebook, mask)
 			codebook = self.affine_transform(codebook)
 
 		with torch.no_grad():
@@ -119,7 +119,9 @@ class VectorQuant(_VQBaseLayer):
 
 		if self.training and hasattr(self, 'inplace_codebook_optimizer'):
 			# update codebook inplace 
-			((z_q - z.detach()) ** 2).mean().backward()
+			mean = ((z_q - z.detach()) ** 2 * mask).sum() / mask.sum() 
+			#((z_q - z.detach()) ** 2).mean().backward()
+			mean.backward()
 			self.inplace_codebook_optimizer.step()
 			self.inplace_codebook_optimizer.zero_grad()
 
@@ -143,13 +145,13 @@ class VectorQuant(_VQBaseLayer):
 		return None
 
 	@with_codebook_normalization
-	def forward(self, z):
+	def forward(self, z, mask):
 
 		######
 		## (1) formatting data by groups and invariant to dim
 		######
-
-		z = self.prepare_inputs(z, self.groups)
+		mask = mask.unsqueeze(-1).expand(-1,-1,z.size(-1))
+		z, mask = self.prepare_inputs(z, mask, self.groups)
 
 		if not self.enabled:
 			z = self.to_original_format(z)
@@ -159,12 +161,15 @@ class VectorQuant(_VQBaseLayer):
 		## (2) quantize latent vector
 		######
 
-		z_q, d, q = self.quantize(self.codebook.weight, z)
+		z_q, d, q = self.quantize(self.codebook.weight, z, mask)
 
 		# e_mean = F.one_hot(q, num_classes=self.num_codes).view(-1, self.num_codes).float().mean(0)
 		# perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
 		perplexity = None
 
+		z = z * mask
+		z_q = z_q * mask
+  
 		to_return = {
 			'z'  : z,               # each group input z_e
 			'z_q': z_q,             # quantized output z_q

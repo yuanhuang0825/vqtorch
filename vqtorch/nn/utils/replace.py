@@ -53,7 +53,8 @@ class ReplaceLRU():
 		module._counts -= 1
 
 		# --- computes most recent codebook usage --- #
-		unique, counts = torch.unique(outputs[1]['q'], return_counts=True)
+		mask = inputs[1].bool()
+		unique, counts = torch.unique(outputs[1]['q'][mask], return_counts=True)
 		module._counts.index_fill_(0, unique, self.timeout)
 
 		# --- find how many needs to be replaced --- #
