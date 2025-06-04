@@ -62,7 +62,7 @@ class VectorQuant(_VQBaseLayer):
 			# defaults to using learnable affine parameters
 			self.affine_transform = AffineTransform(
 										self.code_vector_size,
-										use_running_statistics=False,
+										use_running_statistics=True,
 										lr_scale=affine_lr,
 										num_groups=affine_groups,
 										)
@@ -86,7 +86,7 @@ class VectorQuant(_VQBaseLayer):
 					  (self.beta) * self.loss_fn(z_e.detach(), z_q))
 
 
-	def quantize(self, codebook, z, mask):
+	def quantize(self, codebook, z, mask=None):
 		"""
 		Quantizes the latent codes z with the codebook
 
@@ -98,9 +98,10 @@ class VectorQuant(_VQBaseLayer):
 		# reshape to (BHWG x F//G) and compute distance
 		z_shape = z.shape[:-1]
 		z_flat = z.view(z.size(0), -1, z.size(-1))
+		mask_flat = mask.view(mask.size(0), -1, mask.size(-1))
 
 		if hasattr(self, 'affine_transform'):
-			self.affine_transform.update_running_statistics(z_flat, codebook, mask)
+			self.affine_transform.update_running_statistics(z_flat, codebook, mask_flat)
 			codebook = self.affine_transform(codebook)
 
 		with torch.no_grad():
@@ -121,7 +122,7 @@ class VectorQuant(_VQBaseLayer):
 			# update codebook inplace 
 			mean = ((z_q - z.detach()) ** 2 * mask).sum() / mask.sum() 
 			#((z_q - z.detach()) ** 2).mean().backward()
-			mean.backward()
+			mean.backward(retain_graph=True)
 			self.inplace_codebook_optimizer.step()
 			self.inplace_codebook_optimizer.zero_grad()
 
@@ -145,12 +146,15 @@ class VectorQuant(_VQBaseLayer):
 		return None
 
 	@with_codebook_normalization
-	def forward(self, z, mask):
+	def forward(self, z, mask = None):
 
 		######
 		## (1) formatting data by groups and invariant to dim
 		######
-		mask = mask.unsqueeze(-1).expand(-1,-1,z.size(-1))
+		if mask != None:
+			mask = mask.unsqueeze(-1).expand(-1,-1,z.size(-1))
+		else:
+			mask = torch.ones_like(z)
 		z, mask = self.prepare_inputs(z, mask, self.groups)
 
 		if not self.enabled:
@@ -163,9 +167,9 @@ class VectorQuant(_VQBaseLayer):
 
 		z_q, d, q = self.quantize(self.codebook.weight, z, mask)
 
-		# e_mean = F.one_hot(q, num_classes=self.num_codes).view(-1, self.num_codes).float().mean(0)
-		# perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
-		perplexity = None
+		e_mean = F.one_hot(q, num_classes=self.num_codes).view(-1, self.num_codes).float().mean(0)
+		perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
+		#perplexity = None
 
 		z = z * mask
 		z_q = z_q * mask
