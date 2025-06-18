@@ -62,7 +62,7 @@ class VectorQuant(_VQBaseLayer):
 			# defaults to using learnable affine parameters
 			self.affine_transform = AffineTransform(
 										self.code_vector_size,
-										use_running_statistics=True,
+										use_running_statistics=False,
 										lr_scale=affine_lr,
 										num_groups=affine_groups,
 										)
@@ -80,10 +80,21 @@ class VectorQuant(_VQBaseLayer):
 		return z_q
 
 
-	def compute_loss(self, z_e, z_q):
-		""" computes loss between z and z_q """
-		return ((1.0 - self.beta) * self.loss_fn(z_e, z_q.detach()) + \
-					  (self.beta) * self.loss_fn(z_e.detach(), z_q))
+	# def compute_loss(self, z_e, z_q):
+	# 	""" computes loss between z and z_q """
+	# 	return ((1.0 - self.beta) * self.loss_fn(z_e, z_q.detach()) + \
+	# 				  (self.beta) * self.loss_fn(z_e.detach(), z_q))
+	def compute_loss(self, z_e, z_q, mask=None):
+		loss1 = self.loss_fn(z_e, z_q.detach())
+		loss2 = self.loss_fn(z_e.detach(), z_q)
+		loss = (1.0 - self.beta) * loss1 + self.beta * loss2
+
+		if mask is not None:
+			loss = loss * mask
+			loss = loss.sum() / mask.sum()
+		else:
+			loss = loss.mean()
+		return loss
 
 
 	def quantize(self, codebook, z, mask=None):
@@ -102,7 +113,7 @@ class VectorQuant(_VQBaseLayer):
 
 		if hasattr(self, 'affine_transform'):
 			self.affine_transform.update_running_statistics(z_flat, codebook, mask_flat)
-			codebook = self.affine_transform(codebook)
+			codebook = self.affine_transform(codebook.clone())
 
 		with torch.no_grad():
 			dist_out = self.dist_fn(
@@ -125,7 +136,7 @@ class VectorQuant(_VQBaseLayer):
 			mean.backward(retain_graph=True)
 			self.inplace_codebook_optimizer.step()
 			self.inplace_codebook_optimizer.zero_grad()
-
+   
 			# forward pass again with the update codebook
 			z_q = F.embedding(q, codebook)
 
@@ -171,15 +182,13 @@ class VectorQuant(_VQBaseLayer):
 		perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
 		#perplexity = None
 
-		z = z * mask
-		z_q = z_q * mask
   
 		to_return = {
 			'z'  : z,               # each group input z_e
 			'z_q': z_q,             # quantized output z_q
 			'd'  : d,               # distance function for each group
 			'q'	 : q,				# codes
-			'loss': self.compute_loss(z, z_q).mean(),
+			'loss': self.compute_loss(z, z_q, mask),
 			'perplexity': perplexity,
 			}
 

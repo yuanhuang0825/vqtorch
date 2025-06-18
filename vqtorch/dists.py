@@ -57,8 +57,9 @@ def euclidean_distance(z, z_q):
 					f'{z.size()} vs {z_q.size()}'
 					)
 
-	z, z_q = z.reshape(z.size(0), -1), z_q.reshape(z_q.size(0), -1)
-	return ((z_q - z) ** 2).mean(1) #.sqrt()
+	# z, z_q = z.reshape(z.size(0), -1), z_q.reshape(z_q.size(0), -1)
+	# return ((z_q - z) ** 2).mean(1) #.sqrt()
+	return (z_q - z) ** 2
 
 
 def euclidean_cdist_topk(tensor, codebook, compute_chunk_size=1024, topk=1,
